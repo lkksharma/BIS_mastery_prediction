@@ -1,0 +1,9 @@
+node_modules
+dist
+.env
+.env.local
+serviceAccountKey.json
+.DS_Store
+*.log
+.env.production
+__pycache__

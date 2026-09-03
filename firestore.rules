@@ -1,0 +1,45 @@
+rules_version = '2';
+
+// Firestore is the only backend, so these rules ARE the access control.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Question bank: readable by any signed-in client (anonymous included),
+    // writable only from the Admin SDK (`npm run seed`), which bypasses rules.
+    match /questions/{questionId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    match /settings/{docId} {
+      allow read: if request.auth != null;
+      allow write: if false;
+    }
+
+    // Attempts are write-once. A student may read ONLY their own documents --
+    // the app needs that to count their prior sittings and stamp attemptNumber.
+    // The `studentUid == request.auth.uid` condition also constrains queries,
+    // so no one can enumerate anyone else's answers.
+    //
+    // Nothing is ever updatable or deletable from the browser: an attempt is a
+    // research record, and a student who could rewrite one after seeing their
+    // results would invalidate it.
+    match /quiz_attempts/{attemptId} {
+      allow create: if request.auth != null
+                    && request.resource.data.studentUid == request.auth.uid
+                    && request.resource.data.rollNumber is string
+                    && request.resource.data.rollNumber.size() > 1
+                    && request.resource.data.rollNumber.size() < 40
+                    && request.resource.data.questionCount is int
+                    && request.resource.data.questionCount < 200
+                    && request.resource.data.attemptNumber is int
+                    && request.resource.data.attemptNumber > 0;
+                    // To hard-enforce an institutional domain, add:
+                    // && request.auth.token.email.matches('.*@thapar[.]edu$')
+                    // && request.auth.token.email_verified == true
+      allow read: if request.auth != null
+                  && resource.data.studentUid == request.auth.uid;
+      allow update, delete: if false;
+    }
+  }
+}
