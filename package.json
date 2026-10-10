@@ -9,6 +9,7 @@
     "dev:web": "vite",
     "dev:api": "node --watch server/index.mjs",
     "server": "node server/index.mjs",
+    "start:api": "node server/render.mjs",
     "build": "vite build",
     "preview": "vite preview --port 4173",
     "guidance:prompt": "node scripts/preview_guidance_prompt.mjs",
@@ -29,5 +30,8 @@
     "concurrently": "^10.0.5",
     "firebase-admin": "^13.0.2",
     "vite": "^5.4.11"
+  },
+  "engines": {
+    "node": ">=20.12"
   }
 }

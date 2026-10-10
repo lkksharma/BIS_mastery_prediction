@@ -1,0 +1,19 @@
+# Render Blueprint for the API (study guidance + follow-up quizzes).
+# Render dashboard -> New -> Blueprint -> pick this repo. The three secrets
+# below are asked for once, at creation; they are never stored in the repo.
+services:
+  - type: web
+    name: bis-quiz-api
+    runtime: node
+    plan: free            # sleeps after ~15 min idle; first request then takes ~1 min
+    region: singapore     # closest Render region to India
+    buildCommand: npm ci --omit=dev
+    startCommand: npm run start:api
+    healthCheckPath: /api/health
+    envVars:
+      - key: GEMINI_API_KEY        # from aistudio.google.com/apikey
+        sync: false
+      - key: FIREBASE_PROJECT_ID   # the project the site signs in to, e.g. confidence-quiz-5b615
+        sync: false
+      - key: ALLOWED_ORIGINS       # optional: extra site origins, comma-separated
+        sync: false
