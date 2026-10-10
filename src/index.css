@@ -1353,3 +1353,104 @@ section > .guide__label:first-child {
   margin-top: 3px;
   line-height: 1.5;
 }
+
+/* ---------------------------------------------------------- quiz series */
+
+.series-steps {
+  list-style: none;
+  padding: 0;
+  margin: 10px 0 18px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.series-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  min-width: 0;
+}
+
+.series-step__dot {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 12.5px;
+  font-weight: 700;
+  background: var(--surface-2);
+  color: var(--text-muted);
+}
+
+.series-step__label {
+  display: flex;
+  flex-direction: column;
+  font-size: 13.5px;
+  font-weight: 600;
+  min-width: 0;
+}
+
+.series-step__meta {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.series-step--done .series-step__dot {
+  background: var(--good-soft);
+  color: var(--good);
+}
+
+.series-step--next,
+.series-step--paused {
+  border-color: var(--accent);
+}
+
+.series-step--next .series-step__dot,
+.series-step--paused .series-step__dot {
+  background: var(--accent);
+  color: #fff;
+}
+
+.series-step--paused .series-step__meta {
+  color: var(--warn);
+}
+
+.series-copy {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  margin-bottom: 14px;
+}
+
+.series-copy strong {
+  color: var(--text-primary);
+}
+
+@media (max-width: 480px) {
+  .series-step {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+}
+
+/* The progress chart has three columns and fits a phone without scrolling. */
+.chart-svg--fit {
+  min-width: 0;
+}
+
+/* Centred at a readable width; the tooltip positions against this box, so it
+   has to be the same width as the drawing. */
+.chart-fit {
+  position: relative;
+  max-width: 640px;
+  margin: 0 auto;
+}

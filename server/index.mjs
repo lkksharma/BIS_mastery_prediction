@@ -1,9 +1,13 @@
 /**
- * Guidance API -- the one piece of this app that needs a server, because it
- * holds the Gemini key.
+ * Local development API -- the one piece of this app that needs a server,
+ * because it holds the Gemini key. Routes live in api.mjs:
  *
- *   POST /api/guidance   attempt in, study guidance out (see guidance.mjs)
+ *   POST /api/guidance   attempt in, study guidance out
+ *   POST /api/quiz/next  attempt in, follow-up quiz out
  *   GET  /api/health     { ok, models, hasKey }
+ *
+ * No Firebase token check here; the deployed servers (render.mjs,
+ * lambda.mjs) require one.
  *
  * In development Vite proxies /api here (vite.config.js), so the browser only
  * ever talks to its own origin.  Reads GEMINI_API_KEY from .env.local or .env;
@@ -24,15 +28,8 @@ import { existsSync, readFileSync } from "node:fs";
 import { parseEnv } from "node:util";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import {
-  DEFAULT_MODEL,
-  DEFAULT_FALLBACKS,
-  DEFAULT_THINKING_LEVEL,
-  GuidanceRequest,
-  describeFailure,
-  createGuidanceChains,
-  generateGuidance,
-} from "./guidance.mjs";
+import { DEFAULT_MODEL, DEFAULT_FALLBACKS, DEFAULT_THINKING_LEVEL } from "./guidance.mjs";
+import { createChains, handleApi, readBody, requestSignal, routeFor } from "./api.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const SHELL_ENV = { ...process.env };
@@ -76,7 +73,7 @@ function chainsFor({ apiKey, models, thinkingLevel }) {
     cache = {
       signature,
       chains: apiKey
-        ? createGuidanceChains({ apiKey, models, thinkingLevel })
+        ? createChains({ apiKey, models, thinkingLevel })
         : null,
     };
   }
@@ -84,114 +81,36 @@ function chainsFor({ apiKey, models, thinkingLevel }) {
 }
 
 const PORT = Number(process.env.GUIDANCE_PORT || 8787);
-const MAX_BODY = 256 * 1024;
 // Long enough for a fallback after an overloaded primary plus a full answer.
 const TIMEOUT_MS = 180_000;
 // Only needed when the API is served from a different origin than the site.
-const ALLOWED_ORIGINS = [
-  "[https://confidence-quiz-5b615.web.app](https://confidence-quiz-5b615.web.app)",
-];
+const ALLOWED_ORIGINS = list(process.env.GUIDANCE_ALLOWED_ORIGINS);
 
 function send(res, status, body) {
   res.writeHead(status, { "Content-Type": "application/json; charset=utf-8" });
   res.end(JSON.stringify(body));
 }
 
-function readJson(req) {
-  return new Promise((resolve, reject) => {
-    let size = 0;
-    const chunks = [];
-    req.on("data", (c) => {
-      size += c.length;
-      if (size > MAX_BODY) {
-        reject(
-          Object.assign(new Error("Request body too large"), { status: 413 }),
-        );
-        req.destroy();
-        return;
-      }
-      chunks.push(c);
-    });
-    req.on("end", () => {
-      try {
-        resolve(JSON.parse(Buffer.concat(chunks).toString("utf8")));
-      } catch {
-        reject(
-          Object.assign(new Error("Body is not valid JSON"), { status: 400 }),
-        );
-      }
-    });
-    req.on("error", reject);
-  });
-}
-
-async function handleGuidance(req, res) {
+async function handlePost(route, req, res) {
   const config = currentConfig();
-  const chains = chainsFor(config);
-  if (!chains) {
-    return send(res, 503, {
-      error:
-        "GEMINI_API_KEY is not set on the guidance server. Add it to .env.local.",
-    });
-  }
-
-  let body;
+  let raw;
   try {
-    body = await readJson(req);
+    raw = await readBody(req);
   } catch (err) {
     return send(res, err.status || 400, { error: err.message });
   }
-
-  const parsed = GuidanceRequest.safeParse(body);
-  if (!parsed.success) {
-    return send(res, 400, {
-      error: "Request does not match the expected shape",
-      issues: parsed.error.issues.slice(0, 5),
-    });
-  }
-
-  // Stop paying for a generation nobody is waiting for. `res` close (not `req`)
-  // is the reliable client-disconnect signal once the body has been read.
-  const controller = new AbortController();
-  const timer = setTimeout(
-    () => controller.abort(new Error("timeout")),
-    TIMEOUT_MS,
-  );
-  res.on("close", () => {
-    if (!res.writableEnded) controller.abort(new Error("client disconnected"));
+  const signal = requestSignal(res, TIMEOUT_MS);
+  const { status, body } = await handleApi({
+    route,
+    raw,
+    chains: chainsFor(config),
+    models: config.models,
+    signal,
   });
-
-  const started = Date.now();
-  try {
-    const { guidance, model, linkStats } = await generateGuidance(
-      chains,
-      parsed.data,
-      {
-        signal: controller.signal,
-        onFallback: (m, err) =>
-          console.warn(
-            `[guidance] ${m} unavailable (${err?.status || err?.lc_error_code || "error"}), trying the next model`,
-          ),
-      },
-    );
-    console.log(
-      `[guidance] ${parsed.data.questions.length} questions by ${model} in ${((Date.now() - started) / 1000).toFixed(1)}s; ` +
-        `links: ${linkStats.verified}/${linkStats.total} verified, ` +
-        `${linkStats.youtubeSearch} YouTube searches, ${linkStats.webSearch} web searches`,
-    );
-    send(res, 200, { guidance, model, generatedAt: new Date().toISOString() });
-  } catch (err) {
-    if (controller.signal.aborted && res.destroyed) return;
-    console.error("[guidance] failed:", err?.message || err);
-    const timedOut = controller.signal.aborted;
-    send(res, timedOut ? 504 : 502, {
-      error: timedOut
-        ? "Gemini took too long to respond. Try again."
-        : describeFailure(err, config.models),
-    });
-  } finally {
-    clearTimeout(timer);
+  if (status === 503 && !config.apiKey) {
+    body.error = "GEMINI_API_KEY is not set on the local server. Add it to .env.local.";
   }
+  if (!res.destroyed) send(res, status, body);
 }
 
 const server = createServer(async (req, res) => {
@@ -199,7 +118,7 @@ const server = createServer(async (req, res) => {
   if (origin && ALLOWED_ORIGINS.includes(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Vary", "Origin");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
     res.setHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
   }
   if (req.method === "OPTIONS") return res.writeHead(204).end();
@@ -214,9 +133,8 @@ const server = createServer(async (req, res) => {
       hasKey: Boolean(apiKey),
     });
   }
-  if (req.method === "POST" && url.pathname === "/api/guidance") {
-    return handleGuidance(req, res);
-  }
+  const route = req.method === "POST" ? routeFor(url.pathname) : null;
+  if (route) return handlePost(route, req, res);
   send(res, 404, { error: "Not found" });
 });
 

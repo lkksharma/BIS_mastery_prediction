@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { MAX_LEVEL } from "../lib/series";
 
 /** Institutional addresses are usually the roll number, e.g. 102103045@thapar.edu
  *  or first.102103045@college.ac.in. Pre-fill when we can see one, but leave it
@@ -16,10 +17,21 @@ export default function Landing({
   offline,
   account,
   priorAttempts = 0,
+  series = null,
+  historyStatus = "idle",
+  onResume,
+  onContinue,
 }) {
   const [rollNumber, setRollNumber] = useState(() =>
     guessRollNumber(account?.email),
   );
+  const rollRef = useRef(null);
+
+  // The history arrives after first render; reuse the roll number last given.
+  const lastRoll = series?.lastAttempt?.rollNumber;
+  useEffect(() => {
+    if (lastRoll) setRollNumber((r) => r || lastRoll);
+  }, [lastRoll]);
   const [cgpa, setCgpa] = useState("");
   const [touched, setTouched] = useState(false);
 
@@ -27,14 +39,25 @@ export default function Landing({
   const cgpaBad = cgpa !== "" && (!Number.isFinite(cgpaNum) || cgpaNum < 0 || cgpaNum > 10);
   const canStart = rollNumber.trim().length >= 2 && !cgpaBad;
 
+  const studentInfo = () => ({
+    rollNumber: rollNumber.trim().toUpperCase(),
+    cgpa: Number.isFinite(cgpaNum) ? cgpaNum : null,
+  });
+
+  /** Every way in needs a roll number; send the student to it if missing. */
+  const go = (action) => {
+    setTouched(true);
+    if (!canStart) {
+      rollRef.current?.focus();
+      rollRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+      return;
+    }
+    action(studentInfo());
+  };
+
   const submit = (e) => {
     e.preventDefault();
-    setTouched(true);
-    if (!canStart) return;
-    onStart({
-      rollNumber: rollNumber.trim().toUpperCase(),
-      cgpa: Number.isFinite(cgpaNum) ? cgpaNum : null,
-    });
+    go(onStart);
   };
 
   return (
@@ -46,7 +69,21 @@ export default function Landing({
         </div>
       )}
 
-      {priorAttempts > 0 && (
+      {series && (
+        <SeriesCard
+          series={series}
+          onResume={() => go(onResume)}
+          onContinue={() => go(onContinue)}
+        />
+      )}
+
+      {historyStatus === "loading" && !series && (
+        <p className="muted" style={{ marginBottom: 12 }}>
+          Checking for a quiz series in progress…
+        </p>
+      )}
+
+      {priorAttempts > 0 && !series && (
         <div className="banner banner--warn">
           You have already submitted {priorAttempts}{" "}
           {priorAttempts === 1 ? "attempt" : "attempts"}. You may take it again —
@@ -101,6 +138,7 @@ export default function Landing({
             </label>
             <input
               id="roll"
+              ref={rollRef}
               className="input"
               value={rollNumber}
               onChange={(e) => setRollNumber(e.target.value)}
@@ -148,8 +186,14 @@ export default function Landing({
             disabled={!canStart}
             style={{ marginTop: 8 }}
           >
-            Start section 1
+            {series ? `Start a new quiz 1 of ${MAX_LEVEL}` : "Start section 1"}
           </button>
+          {series && (
+            <p className="field__hint" style={{ textAlign: "center", marginTop: 8 }}>
+              Starts a new series from the main quiz. Your earlier attempts stay
+              recorded.
+            </p>
+          )}
         </form>
       </div>
 
@@ -158,4 +202,88 @@ export default function Landing({
       </p>
     </div>
   );
+}
+
+/* Where the student is in their latest series, and the one sensible next step. */
+function SeriesCard({ series, onResume, onContinue }) {
+  const done = new Map(series.levels.map((l) => [l.level, l]));
+  const pendingLevel = series.pending?.level;
+
+  return (
+    <div className="card">
+      <p className="eyebrow">Your quiz series</p>
+      <ol className="series-steps">
+        {Array.from({ length: MAX_LEVEL }, (_, i) => i + 1).map((level) => {
+          const d = done.get(level);
+          const state = d
+            ? "done"
+            : level === pendingLevel
+              ? "paused"
+              : level === series.nextLevel
+                ? "next"
+                : "later";
+          return (
+            <li key={level} className={`series-step series-step--${state}`}>
+              <span className="series-step__dot" aria-hidden="true">
+                {d ? "✓" : level}
+              </span>
+              <span className="series-step__label">
+                Quiz {level}
+                <span className="series-step__meta">
+                  {d
+                    ? `${d.score}/${d.total} correct`
+                    : state === "paused"
+                      ? "unfinished"
+                      : state === "next"
+                        ? "up next"
+                        : "locked"}
+                </span>
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+
+      {series.pending ? (
+        <>
+          <p className="series-copy">
+            <strong>
+              You started quiz {series.pending.level} of {MAX_LEVEL} but did not
+              finish it.
+            </strong>{" "}
+            It focuses on {listTopics(series.pending.focusTopics)}. Resuming
+            gives you the same questions, from the first one again.
+          </p>
+          <button type="button" className="btn btn--primary btn--wide" onClick={onResume}>
+            Resume quiz {series.pending.level} of {MAX_LEVEL}
+          </button>
+        </>
+      ) : series.nextLevel ? (
+        <>
+          <p className="series-copy">
+            <strong>
+              Quiz {series.nextLevel} of {MAX_LEVEL} is built from your answers
+              in quiz {series.nextLevel - 1}.
+            </strong>{" "}
+            New questions aimed at the topics you found hardest, so you can see
+            whether they have improved.
+          </p>
+          <button type="button" className="btn btn--primary btn--wide" onClick={onContinue}>
+            Take quiz {series.nextLevel} of {MAX_LEVEL}
+          </button>
+        </>
+      ) : (
+        <p className="series-copy">
+          <strong>You have finished all {MAX_LEVEL} quizzes in this series.</strong>{" "}
+          Start a new series below to go round again.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function listTopics(topics = []) {
+  if (topics.length === 0) return "your weakest topics";
+  if (topics.length === 1) return topics[0];
+  return `${topics.slice(0, -1).join(", ")} and ${topics[topics.length - 1]}`;
 }

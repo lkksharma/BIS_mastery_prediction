@@ -267,22 +267,34 @@ export const guidancePrompt = ChatPromptTemplate.fromMessages([
 /* ------------------------------------------------------------------ *
  * The chain: prompt -> Gemini (JSON-schema constrained) -> zod parse.
  * ------------------------------------------------------------------ */
-export function createGuidanceChain({ apiKey, model = DEFAULT_MODEL, thinkingLevel } = {}) {
+/**
+ * prompt -> Gemini (JSON-schema constrained) -> zod parse. Shared by the
+ * guidance chain here and the quiz-generation chains in quizgen.mjs.
+ */
+export function createStructuredChain({
+  prompt,
+  schema,
+  name,
+  apiKey,
+  model = DEFAULT_MODEL,
+  thinkingLevel,
+  maxOutputTokens = 16384,
+}) {
   const llm = new ChatGoogleGenerativeAI({
     apiKey,
     model,
     // Gemini 3 thinks before answering; "low" trades a little depth for speed.
     ...(thinkingLevel ? { thinkingConfig: { thinkingLevel } } : {}),
-    // Fifteen questions with sources is a long answer, and on thinking models
-    // the reasoning tokens come out of the same budget.
-    maxOutputTokens: 16384,
+    // Long answers, and on thinking models the reasoning tokens come out of
+    // the same budget.
+    maxOutputTokens,
     // One retry for a momentary blip; an overloaded model is better handled by
-    // moving on to the next one (generateGuidance) than by backing off here.
+    // moving on to the next one (invokeWithFallback) than by backing off here.
     maxRetries: 1,
   });
 
-  return guidancePrompt
-    .pipe(llm.withStructuredOutput(GuidanceResponse, { name: "study_guidance" }))
+  return prompt
+    .pipe(llm.withStructuredOutput(schema, { name }))
     // A response that fails schema parsing is worth one more try; the network
     // retries above do not cover that case. Anything else (bad key, quota,
     // abort) is rethrown at once -- throwing here is how p-retry stops early.
@@ -292,6 +304,17 @@ export function createGuidanceChain({ apiKey, model = DEFAULT_MODEL, thinkingLev
         if (err?.lc_error_code !== "OUTPUT_PARSING_FAILURE") throw err;
       },
     });
+}
+
+export function createGuidanceChain({ apiKey, model = DEFAULT_MODEL, thinkingLevel } = {}) {
+  return createStructuredChain({
+    prompt: guidancePrompt,
+    schema: GuidanceResponse,
+    name: "study_guidance",
+    apiKey,
+    model,
+    thinkingLevel,
+  });
 }
 
 /** Format the variables the prompt expects from a validated request. */
@@ -381,20 +404,65 @@ export function isModelUnavailable(err) {
  * so the page credits the right one.
  */
 export async function generateGuidance(chains, request, { signal, onFallback } = {}) {
+  const { output, model } = await invokeWithFallback(chains, promptInput(request), {
+    signal,
+    onFallback,
+    // A healthy model writes guidance in 30-65 s.
+    attemptTimeoutMs: 90_000,
+  });
+  const guidance = alignToRequest(request, output);
+  const { topics, stats } = await checkResourceLinks(guidance.topics, { signal });
+  return { guidance: { ...guidance, topics }, model, linkStats: stats };
+}
+
+/* ------------------------------------------------------------------ *
+ * Model fallback.
+ *
+ * An overloaded Gemini model does not always fail: under load it can sit on a
+ * request for minutes (measured: 151 s for "Reply OK" on gemini-3.8-flash while
+ * gemini-3.5-flash answered in 2.6 s). So each model gets a time limit, after
+ * which the next one is tried, and a model that just failed or stalled is
+ * skipped by later requests for a few minutes -- only the first student during
+ * a slowdown pays for discovering it.
+ * ------------------------------------------------------------------ */
+const PENALTY_MS = 3 * 60 * 1000;
+const penalisedUntil = new Map(); // model -> timestamp
+
+class AttemptTimeout extends Error {
+  constructor(model, ms) {
+    super(`${model} did not answer within ${Math.round(ms / 1000)}s`);
+    this.name = "AttemptTimeout";
+    this.status = 504;
+  }
+}
+
+/** Run one input through [{ model, chain }] in order until a model answers. */
+export async function invokeWithFallback(
+  chains,
+  input,
+  { signal, onFallback, attemptTimeoutMs } = {},
+) {
+  const now = Date.now();
+  const healthy = chains.filter((c) => (penalisedUntil.get(c.model) || 0) <= now);
+  // If every model is in the penalty box, try them all anyway, in order.
+  const order = healthy.length > 0 ? healthy : chains;
+
   let lastErr;
-  for (const { model, chain } of chains) {
-    let raw;
+  for (const { model, chain } of order) {
+    const attempt = attemptTimeoutMs ? AbortSignal.timeout(attemptTimeoutMs) : null;
+    const combined = attempt && signal ? AbortSignal.any([signal, attempt]) : attempt || signal;
     try {
-      raw = await chain.invoke(promptInput(request), { signal });
+      const output = await chain.invoke(input, { signal: combined });
+      penalisedUntil.delete(model);
+      return { output, model };
     } catch (err) {
-      lastErr = err;
-      if (signal?.aborted || !isModelUnavailable(err)) throw err;
-      onFallback?.(model, err);
-      continue;
+      if (signal?.aborted) throw err;
+      const stalled = attempt?.aborted;
+      lastErr = stalled ? new AttemptTimeout(model, attemptTimeoutMs) : err;
+      if (!stalled && !isModelUnavailable(err)) throw err;
+      penalisedUntil.set(model, Date.now() + PENALTY_MS);
+      onFallback?.(model, lastErr);
     }
-    const guidance = alignToRequest(request, raw);
-    const { topics, stats } = await checkResourceLinks(guidance.topics, { signal });
-    return { guidance: { ...guidance, topics }, model, linkStats: stats };
   }
   throw lastErr;
 }
@@ -405,6 +473,9 @@ export function describeFailure(err, models) {
   const msg = String(err?.message || err || "unknown error");
   if (/API_KEY_INVALID|API key not valid/i.test(msg)) {
     return "Gemini rejected the API key. Check GEMINI_API_KEY in .env.local.";
+  }
+  if (err?.name === "AttemptTimeout") {
+    return "Gemini is very slow right now and no model answered in time. Try again in a minute.";
   }
   if (err?.status === 503 || /UNAVAILABLE|high demand|overloaded/i.test(msg)) {
     return `Gemini is overloaded right now (tried ${models.join(", ")}). Try again in a minute.`;

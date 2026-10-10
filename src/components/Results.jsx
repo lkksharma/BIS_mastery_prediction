@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from "react";
 import ConfidenceChart from "./ConfidenceChart";
+import ProgressChart from "./ProgressChart";
+import { MAX_LEVEL } from "../lib/series";
 import { STATES, MODEL_METRICS } from "../model/predict";
 import { CONFIDENCE_WORDS } from "./QuestionView";
 
@@ -19,7 +21,12 @@ export default function Results({
   attemptNumber = 1,
   guidance = { status: "idle" },
   onRetryGuidance,
+  quiz = null,
+  seriesLevels = [],
+  onNextQuiz = null,
+  onHome = null,
 }) {
+  const level = quiz?.level || 1;
   const [view, setView] = useState("chart");
   const { items, calibrationResults, technicalResults, calibration } = analysis;
   const perQuestion = guidance.data?.guidance.questions || {};
@@ -70,9 +77,14 @@ export default function Results({
 
       <div className="card">
         <p className="eyebrow">
-          Attempt {rollNumber}
+          Quiz {level} of {MAX_LEVEL} · {rollNumber}
           {attemptNumber > 1 ? ` · sitting ${attemptNumber}` : ""}
         </p>
+        {level > 1 && quiz?.focusTopics?.length > 0 && (
+          <p style={{ fontSize: 13, color: "var(--text-secondary)", marginBottom: 6 }}>
+            Focused on: {quiz.focusTopics.join(" · ")}
+          </p>
+        )}
         <h1 style={{ fontSize: 24, letterSpacing: "-0.02em", marginBottom: 4 }}>
           Your confidence profile
         </h1>
@@ -126,7 +138,69 @@ export default function Results({
         </div>
       </div>
 
+      {seriesLevels.length > 0 && (
+        <div className="card">
+          <div className="card__head">
+            <h2 className="card__title">Your progress across the series</h2>
+            <p className="card__sub">
+              {seriesLevels.length === 1
+                ? `Quiz 1 sets your starting point. Quizzes 2 and 3 are built from your weak spots, and each one adds a point here.`
+                : `Each follow-up quiz is built from the weak spots in the one before it, so a taller column means those topics are improving.`}{" "}
+              Each column is your score, split by whether you hesitated (changed
+              an answer, flagged it, or took longer than your average).
+            </p>
+          </div>
+          <ProgressChart levels={seriesLevels} currentLevel={level} />
+        </div>
+      )}
+
       <StudyGuide guidance={guidance} items={items} onRetry={onRetryGuidance} />
+
+      {(onNextQuiz || onHome) && (
+        <div className="card">
+          {onNextQuiz ? (
+            <>
+              <div className="card__head">
+                <h2 className="card__title">
+                  Next: quiz {level + 1} of {MAX_LEVEL}
+                </h2>
+                <p className="card__sub">
+                  New questions aimed at the topics you found hardest here
+                  {guidance.status === "ready"
+                    ? ", using the weak concepts listed above."
+                    : guidance.status === "loading"
+                      ? ". Waiting for the study guidance first makes it more precise."
+                      : "."}{" "}
+                  You can also come back to it later from the home page.
+                </p>
+              </div>
+              <div className="navrow" style={{ marginTop: 0 }}>
+                {onHome && (
+                  <button type="button" className="btn" onClick={onHome}>
+                    Back to home
+                  </button>
+                )}
+                <button type="button" className="btn btn--primary navrow__spacer" onClick={onNextQuiz}>
+                  Take quiz {level + 1} of {MAX_LEVEL}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="card__head">
+                <h2 className="card__title">Series complete</h2>
+                <p className="card__sub">
+                  You have taken all {MAX_LEVEL} quizzes in this series. Start a
+                  new series from the home page to go round again.
+                </p>
+              </div>
+              <button type="button" className="btn" onClick={onHome}>
+                Back to home
+              </button>
+            </>
+          )}
+        </div>
+      )}
 
       <div className="card">
         <div className="card__head">

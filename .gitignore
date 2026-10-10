@@ -9,3 +9,5 @@ serviceAccountKey.json
 .env.production
 __pycache__
 .lambda
+.env.*.local
+.firebase/

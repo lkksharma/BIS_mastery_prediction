@@ -67,7 +67,12 @@ export function buildGuidanceRequest(analysis) {
   };
 }
 
-export async function fetchGuidance(analysis, { signal } = {}) {
+// Routes share one base: VITE_GUIDANCE_API_URL names the guidance route, and
+// the others sit beside it (".../api/guidance" -> ".../api/quiz/next").
+const API_BASE = ENDPOINT.replace(/\/api\/guidance\/?$/, "");
+
+/** POST to the API with the student's Firebase token, returning parsed JSON. */
+export async function postApi(path, payload, { signal, unreachable } = {}) {
   const headers = { "Content-Type": "application/json" };
   // getIdToken() refreshes an expired token itself; a failure here just means
   // no header, and the server explains that the student needs to sign in.
@@ -76,20 +81,29 @@ export async function fetchGuidance(analysis, { signal } = {}) {
 
   let res;
   try {
-    res = await fetch(ENDPOINT, {
+    res = await fetch(`${API_BASE}${path}`, {
       method: "POST",
       headers,
-      body: JSON.stringify(buildGuidanceRequest(analysis)),
+      body: JSON.stringify(payload),
       signal,
     });
   } catch (err) {
     if (err?.name === "AbortError") throw err;
-    throw new Error("Could not reach the guidance server. Is it running?");
+    throw new Error(unreachable || "Could not reach the server. Is it running?");
   }
 
   const body = await res.json().catch(() => null);
-  if (!res.ok || !body?.guidance) {
-    throw new Error(body?.error || `Guidance server returned ${res.status}`);
+  if (!res.ok || !body || body.error) {
+    throw new Error(body?.error || `Server returned ${res.status}`);
   }
+  return body;
+}
+
+export async function fetchGuidance(analysis, { signal } = {}) {
+  const body = await postApi("/api/guidance", buildGuidanceRequest(analysis), {
+    signal,
+    unreachable: "Could not reach the guidance server. Is it running?",
+  });
+  if (!body.guidance) throw new Error("The guidance server sent an empty answer.");
   return body;
 }

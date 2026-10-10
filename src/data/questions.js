@@ -67,6 +67,118 @@ export const CALIBRATION_QUESTIONS = [
   },
 ];
 
+/**
+ * Calibration sets for follow-up quizzes 2 and 3. A student who has already
+ * rated set 1 knows its answers, and a rating on a remembered item is not a
+ * read on confidence -- so each level gets its own three, built to the same
+ * spec: medium-to-hard syllogism and conditional items where the intuitive
+ * answer is often wrong (belief bias, affirming/denying, undistributed middle).
+ * The model was fitted for k=3, so every set has exactly three.
+ */
+const FOLLOW_UP_CALIBRATION = {
+  2: [
+    {
+      id: "cal2_1",
+      block: "calibration",
+      type: "Reasoning",
+      difficulty: "medium",
+      text:
+        "All doctors are graduates. Some graduates are musicians. " +
+        "Therefore, some doctors are musicians.",
+      prompt: "Is this argument valid or invalid?",
+      options: ["Valid", "Invalid"],
+      correctAnswer: "Invalid",
+      explanation:
+        "The graduates who are musicians may all be non-doctors. Sharing the " +
+        "middle term 'graduates' links nothing, because neither premise covers " +
+        "all graduates (an undistributed middle).",
+    },
+    {
+      id: "cal2_2",
+      block: "calibration",
+      type: "Reasoning",
+      difficulty: "medium",
+      text:
+        "If the alarm is set, the door is locked. The door is not locked. " +
+        "Therefore, the alarm is not set.",
+      prompt: "Is this argument valid or invalid?",
+      options: ["Valid", "Invalid"],
+      correctAnswer: "Valid",
+      explanation:
+        "Modus tollens. If the alarm were set the door would be locked; it is " +
+        "not locked, so the alarm cannot be set.",
+    },
+    {
+      id: "cal2_3",
+      block: "calibration",
+      type: "Reasoning",
+      difficulty: "hard",
+      text:
+        "No police dogs are vicious. Some highly trained dogs are vicious. " +
+        "Therefore, some highly trained dogs are not police dogs.",
+      prompt: "Is this argument valid or invalid?",
+      options: ["Valid", "Invalid"],
+      correctAnswer: "Valid",
+      explanation:
+        "The vicious highly trained dogs cannot be police dogs, since no police " +
+        "dog is vicious. Valid (Festino), even though the conclusion feels odd.",
+    },
+  ],
+  3: [
+    {
+      id: "cal3_1",
+      block: "calibration",
+      type: "Reasoning",
+      difficulty: "hard",
+      text:
+        "All things made of plants are healthy. Cigarettes are made of plants. " +
+        "Therefore, cigarettes are healthy.",
+      prompt: "Is this argument valid or invalid?",
+      options: ["Valid", "Invalid"],
+      correctAnswer: "Valid",
+      explanation:
+        "The conclusion is false because the first premise is false, but the " +
+        "form is valid: if both premises were true, the conclusion would have " +
+        "to be. Validity is about the form, not the truth.",
+    },
+    {
+      id: "cal3_2",
+      block: "calibration",
+      type: "Reasoning",
+      difficulty: "medium",
+      text:
+        "If Sam studies, Sam passes. Sam did not study. " +
+        "Therefore, Sam did not pass.",
+      prompt: "Is this argument valid or invalid?",
+      options: ["Valid", "Invalid"],
+      correctAnswer: "Invalid",
+      explanation:
+        "Denying the antecedent. Studying is enough to pass, but nothing says " +
+        "it is the only way to pass.",
+    },
+    {
+      id: "cal3_3",
+      block: "calibration",
+      type: "Reasoning",
+      difficulty: "hard",
+      text:
+        "Some teachers are not strict. All strict people are punctual. " +
+        "Therefore, some teachers are not punctual.",
+      prompt: "Is this argument valid or invalid?",
+      options: ["Valid", "Invalid"],
+      correctAnswer: "Invalid",
+      explanation:
+        "The teachers who are not strict could still all be punctual. The " +
+        "premises only say strict people are punctual, not that others are not.",
+    },
+  ],
+};
+
+/** The calibration block for quiz `level` of a series (1 = the main bank). */
+export function calibrationForLevel(level, baseCalibration = CALIBRATION_QUESTIONS) {
+  return level <= 1 ? baseCalibration : FOLLOW_UP_CALIBRATION[level] || FOLLOW_UP_CALIBRATION[3];
+}
+
 export const TECHNICAL_QUESTIONS = [
   {
     id: "tech_1",

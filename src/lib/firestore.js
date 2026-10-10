@@ -110,3 +110,42 @@ export async function countPriorAttempts(uid) {
     return 0;
   }
 }
+
+/**
+ * Everything the home page needs to place the student in their quiz series:
+ * their own attempts and their own generated follow-up quizzes. The
+ * `studentUid ==` filter is what the rules require for the query to be allowed.
+ * Equality-only, so no composite index is needed; sorting happens client-side.
+ */
+export async function loadHistory(uid) {
+  const empty = { attempts: [], generated: [], ok: false };
+  if (!db || !uid) return empty;
+  const mine = (name) => query(collection(db, name), where("studentUid", "==", uid));
+  const [attempts, generated] = await Promise.allSettled([
+    getDocs(mine("quiz_attempts")),
+    getDocs(mine("generated_quizzes")),
+  ]);
+  const rows = (r) => (r.status === "fulfilled" ? r.value.docs.map((d) => ({ id: d.id, ...d.data() })) : []);
+  if (attempts.status === "rejected") console.warn("Attempt history unavailable:", attempts.reason?.code || attempts.reason);
+  if (generated.status === "rejected") console.warn("Generated quizzes unavailable:", generated.reason?.code || generated.reason);
+  return { attempts: rows(attempts), generated: rows(generated), ok: attempts.status === "fulfilled" };
+}
+
+/**
+ * Save a generated follow-up quiz before the student starts it, so it can be
+ * resumed after a sign-out. Write-once, like attempts. A failure only costs
+ * the ability to resume; the quiz itself still runs.
+ */
+export async function saveGeneratedQuiz(doc) {
+  if (!db) return { ok: false, reason: "not-configured" };
+  try {
+    const ref = await addDoc(collection(db, "generated_quizzes"), {
+      ...doc,
+      createdAt: serverTimestamp(),
+    });
+    return { ok: true, id: ref.id };
+  } catch (err) {
+    console.error("Generated quiz save failed:", err);
+    return { ok: false, reason: err?.code || "unknown" };
+  }
+}

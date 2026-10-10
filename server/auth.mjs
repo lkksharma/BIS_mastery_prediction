@@ -25,7 +25,7 @@ export class AuthError extends Error {
 /** Returns the verified token payload, or throws AuthError. */
 export async function verifyFirebaseToken(authorizationHeader, projectId) {
   const match = /^Bearer\s+(.+)$/i.exec(String(authorizationHeader || ""));
-  if (!match) throw new AuthError("Sign in to get study guidance.");
+  if (!match) throw new AuthError("Sign in first, then try again.");
   try {
     const { payload } = await jwtVerify(match[1], JWKS, {
       issuer: `https://securetoken.google.com/${projectId}`,
