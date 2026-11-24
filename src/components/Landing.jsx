@@ -23,6 +23,7 @@ export default function Landing({
   historyStatus = "idle",
   onResume,
   onContinue,
+  onViewAnalysis,
 }) {
   const [rollNumber, setRollNumber] = useState(() =>
     guessRollNumber(account?.email),
@@ -76,6 +77,7 @@ export default function Landing({
           series={series}
           onResume={() => go(onResume)}
           onContinue={() => go(onContinue)}
+          onViewAnalysis={onViewAnalysis}
         />
       )}
 
@@ -207,7 +209,7 @@ export default function Landing({
 }
 
 /* Where the student is in their latest series, and the one sensible next step. */
-function SeriesCard({ series, onResume, onContinue }) {
+function SeriesCard({ series, onResume, onContinue, onViewAnalysis }) {
   const done = new Map(series.levels.map((l) => [l.level, l]));
   const pendingLevel = series.pending?.level;
   // The series is open-ended: show a rolling strip ending at the next quiz.
@@ -230,13 +232,39 @@ function SeriesCard({ series, onResume, onContinue }) {
               : level === series.nextLevel
                 ? "next"
                 : "later";
+
+          if (d && onViewAnalysis) {
+            return (
+              <li key={level} className="series-step series-step--done series-step--clickable">
+                <button
+                  type="button"
+                  className="series-step__btn"
+                  onClick={() => onViewAnalysis(level)}
+                  title={`View Quiz ${level} analysis`}
+                  aria-label={`View Quiz ${level} analysis (${d.score}/${d.total} correct)`}
+                >
+                  <span className="series-step__dot" aria-hidden="true">
+                    ✓
+                  </span>
+                  <span className="series-step__label">
+                    <span className="series-step__title">Quiz {level}</span>
+                    <span className="series-step__meta">
+                      {d.score}/{d.total} correct
+                    </span>
+                    <span className="series-step__action">View analysis →</span>
+                  </span>
+                </button>
+              </li>
+            );
+          }
+
           return (
             <li key={level} className={`series-step series-step--${state}`}>
               <span className="series-step__dot" aria-hidden="true">
                 {d ? "✓" : level}
               </span>
               <span className="series-step__label">
-                Quiz {level}
+                <span className="series-step__title">Quiz {level}</span>
                 <span className="series-step__meta">
                   {d
                     ? `${d.score}/${d.total} correct`
@@ -251,6 +279,11 @@ function SeriesCard({ series, onResume, onContinue }) {
           );
         })}
       </ol>
+      {series.levels.length > 0 && (
+        <p className="field__hint" style={{ marginTop: -8, marginBottom: 14 }}>
+          Click any completed quiz above to review its confidence profile and analysis.
+        </p>
+      )}
 
       {series.pending ? (
         <>

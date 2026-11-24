@@ -16,6 +16,11 @@ import {
   requestNextQuiz,
 } from "./lib/series";
 import {
+  saveCachedAnalysis,
+  updateCachedGuidance,
+  getCachedAnalysis,
+} from "./lib/analysisCache";
+import {
   watchAuth,
   resolveRedirect,
   signOutUser,
@@ -54,6 +59,7 @@ export default function App() {
   // Building the next quiz: { status: "idle" | "loading" | "error", level, error, args }
   const [generation, setGeneration] = useState({ status: "idle" });
   const [lastAttemptId, setLastAttemptId] = useState(null);
+  const [viewingPast, setViewingPast] = useState(false);
   const [timeLeft, setTimeLeft] = useState(null);
   const [theme, setTheme] = useState(
     () => localStorage.getItem("bisq-theme") || "system",
@@ -192,13 +198,18 @@ export default function App() {
    * effect so StrictMode's double-mount does not send every attempt twice.
    * It never blocks the results page: the scores render at once and the
    * guidance fills in when it arrives. */
-  const requestGuidance = useCallback((result) => {
+  const requestGuidance = useCallback((result, targetQuiz = quiz) => {
     if (!GUIDANCE_ENABLED) return;
     setGuidance({ status: "loading" });
     fetchGuidance(result)
-      .then((data) => setGuidance({ status: "ready", data }))
+      .then((data) => {
+        setGuidance({ status: "ready", data });
+        if (targetQuiz?.seriesId && targetQuiz?.level) {
+          updateCachedGuidance(targetQuiz.seriesId, targetQuiz.level, { status: "ready", data });
+        }
+      })
       .catch((err) => setGuidance({ status: "error", error: err.message }));
-  }, []);
+  }, [quiz]);
 
   /* ---------------------------------------------------- starting a quiz */
   const beginQuiz = useCallback(
@@ -210,6 +221,7 @@ export default function App() {
       setGuidance({ status: "idle" });
       setSaveState("idle");
       setLastAttemptId(null);
+      setViewingPast(false);
       setGeneration({ status: "idle" });
       startedAt.current = new Date().toISOString();
       setTimeLeft((config.totalTimeAllowedMinutes || 25) * 60);
@@ -360,8 +372,68 @@ export default function App() {
     [series, generateFollowUp, bank],
   );
 
+  /** View a completed past quiz analysis from the home page. */
+  const viewPastAnalysis = useCallback(
+    (level) => {
+      if (!series) return;
+      const seriesId = series.seriesId;
+      const cached = getCachedAnalysis(seriesId, level);
+      const attemptDoc = series.attemptsByLevel?.[level] || series.lastAttempt;
+
+      let analysisData = cached?.analysis;
+      let guidanceData = cached?.guidance || { status: "idle" };
+      let quizData = cached?.quiz;
+      let rollNum = cached?.rollNumber || attemptDoc?.rollNumber || student.rollNumber;
+      let attNum = cached?.attemptNumber || attemptDoc?.attemptNumber || 1;
+
+      // Reconstruct from attempt doc if not present in localStorage
+      if (!analysisData && attemptDoc) {
+        analysisData = analysisFromAttempt(attemptDoc, bank);
+        quizData = {
+          level,
+          kind: level === 1 ? "base" : "follow-up",
+          seriesId,
+          parentAttemptId: attemptDoc.parentAttemptId || null,
+          generatedQuizId: attemptDoc.generatedQuizId || null,
+          focusTopics: attemptDoc.focusTopics || [],
+          calibration:
+            attemptDoc.questionSnapshot?.filter((q) => q.block === "calibration") ||
+            bank.calibration,
+          technical:
+            attemptDoc.questionSnapshot?.filter((q) => q.block === "technical") ||
+            bank.technical,
+          source: attemptDoc.questionSource || "generated",
+          answerKeyVerified: attemptDoc.answerKeyVerified !== false,
+        };
+      }
+
+      if (!analysisData) {
+        console.warn(`No analysis found for quiz level ${level}`);
+        return;
+      }
+
+      setAnalysis(analysisData);
+      setQuiz(quizData);
+      setGuidance(guidanceData);
+      setStudent((s) => ({ ...s, rollNumber: rollNum }));
+      setPriorAttempts(attNum);
+      setSaveState("saved");
+      setViewingPast(true);
+      setStage(STAGES.RESULTS);
+      window.scrollTo({ top: 0, behavior: "auto" });
+
+      // If guidance was not cached yet (e.g. fresh device or tab closed early),
+      // fetch it in the background so the AI "What to work on" guide is populated.
+      if (guidanceData.status !== "ready" && GUIDANCE_ENABLED) {
+        requestGuidance(analysisData, quizData);
+      }
+    },
+    [series, bank, student.rollNumber, requestGuidance],
+  );
+
   const submit = useCallback(async () => {
     setStage(STAGES.SCORING);
+    setViewingPast(false);
     const telemetry = telemetryRef.current;
     telemetry.pause();
 
@@ -378,7 +450,7 @@ export default function App() {
       cgpa: student.cgpa,
     });
     setAnalysis(result);
-    requestGuidance(result);
+    requestGuidance(result, quiz);
 
     const payload = {
       rollNumber: student.rollNumber,
@@ -459,6 +531,18 @@ export default function App() {
     setHistory((h) => ({ ...h, attempts: [...h.attempts, { id, ...payload }] }));
     setPriorAttempts((n) => n + 1);
 
+    // Save full analysis to client-side cache so it can be re-opened from the home page
+    saveCachedAnalysis({
+      seriesId: quiz.seriesId,
+      level: quiz.level,
+      attemptId: id,
+      analysis: result,
+      guidance: { status: "idle" },
+      quiz,
+      rollNumber: student.rollNumber,
+      attemptNumber: priorAttempts + 1,
+    });
+
     setStage(STAGES.RESULTS);
     window.scrollTo({ top: 0, behavior: "auto" });
   }, [quiz, student, account, priorAttempts, requestGuidance]);
@@ -520,6 +604,7 @@ export default function App() {
   const goHome = () => {
     generationAbort.current?.abort();
     setGeneration({ status: "idle" });
+    setViewingPast(false);
     setStage(STAGES.LANDING);
     window.scrollTo({ top: 0, behavior: "auto" });
     // Pick up anything saved from another device or tab meanwhile.
@@ -551,6 +636,7 @@ export default function App() {
           onStart={startBase}
           onResume={(s) => resumePending(series.pending, s)}
           onContinue={continueFromHome}
+          onViewAnalysis={viewPastAnalysis}
         />
       )}
 
@@ -587,11 +673,21 @@ export default function App() {
           // submit() has already counted this attempt in priorAttempts.
           attemptNumber={priorAttempts}
           guidance={guidance}
-          onRetryGuidance={() => requestGuidance(analysis)}
+          onRetryGuidance={() => requestGuidance(analysis, quiz)}
           quiz={quiz}
           seriesLevels={series?.seriesId === quiz?.seriesId ? series.levels : []}
-          // Open-ended series: there is always a next quiz; "Back to home" is how the student stops.
-          onNextQuiz={quiz ? continueFromResults : null}
+          isViewingPast={viewingPast}
+          // If viewing the most recent completed quiz, allow taking the next one;
+          // otherwise if viewing older quizzes, next quiz is disabled.
+          onNextQuiz={
+            viewingPast
+              ? quiz?.level === (series?.nextLevel || 1) - 1
+                ? continueFromResults
+                : null
+              : quiz
+                ? continueFromResults
+                : null
+          }
           onHome={goHome}
         />
       )}

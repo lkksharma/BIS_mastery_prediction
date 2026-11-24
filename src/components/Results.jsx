@@ -22,6 +22,7 @@ export default function Results({
   onRetryGuidance,
   quiz = null,
   seriesLevels = [],
+  isViewingPast = false,
   onNextQuiz = null,
   onHome = null,
 }) {
@@ -66,7 +67,31 @@ export default function Results({
 
   return (
     <div className="shell" style={{ paddingTop: 24 }}>
-      {saveState === "failed" && (
+      {isViewingPast && (
+        <div
+          className="banner"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 12,
+            background: "var(--surface-2)",
+            borderColor: "var(--border)",
+            marginBottom: 16,
+          }}
+        >
+          <span>
+            Reviewing saved analysis for <strong>Quiz {level}</strong>.
+          </span>
+          {onHome && (
+            <button type="button" className="btn btn--sm" onClick={onHome}>
+              ← Back to home
+            </button>
+          )}
+        </div>
+      )}
+
+      {saveState === "failed" && !isViewingPast && (
         <div className="banner banner--warn">
           Your attempt could not be saved to Firestore, so it will not appear in
           the instructor export. Everything below was computed in this browser
@@ -177,7 +202,7 @@ export default function Results({
               <div className="navrow" style={{ marginTop: 0 }}>
                 {onHome && (
                   <button type="button" className="btn" onClick={onHome}>
-                    I'm done for now
+                    {isViewingPast ? "← Back to home" : "I'm done for now"}
                   </button>
                 )}
                 <button type="button" className="btn btn--primary navrow__spacer" onClick={onNextQuiz}>
@@ -188,13 +213,17 @@ export default function Results({
           ) : (
             <>
               <div className="card__head">
-                <h2 className="card__title">You're done</h2>
+                <h2 className="card__title">
+                  {isViewingPast ? `Quiz ${level} review` : "You're done"}
+                </h2>
                 <p className="card__sub">
-                  Start a new series from the home page whenever you like.
+                  {isViewingPast
+                    ? "Return to the home page to resume your quiz series or view another quiz."
+                    : "Start a new series from the home page whenever you like."}
                 </p>
               </div>
-              <button type="button" className="btn" onClick={onHome}>
-                Back to home
+              <button type="button" className="btn btn--primary" onClick={onHome}>
+                ← Back to home
               </button>
             </>
           )}

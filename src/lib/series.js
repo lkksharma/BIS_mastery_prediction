@@ -83,6 +83,7 @@ export function summarizeSeries(history) {
   return {
     seriesId,
     levels: levels.map(attemptSummary),
+    attemptsByLevel: Object.fromEntries(byLevel),
     lastAttempt: lastDone,
     pending,
     // Open-ended: there is always a next quiz until the student stops.
@@ -108,12 +109,18 @@ export function analysisFromAttempt(doc, bank) {
       ? doc.questionSnapshot
       : Object.keys(metrics).map((id) => byId.get(id)).filter(Boolean);
 
-  const items = questions.map((q) => {
+  const items = questions.map((q, i) => {
     const m = metrics[q.id] || {};
     const probs = m.predictedProbs || [];
+    const isCalib = q.block === "calibration";
+    const actual = isCalib && m.confidenceRating ? m.confidenceRating : null;
+    const predConf = Math.min(5, Math.max(1, Number(m.predictedConfidence) || 3));
+    const sd = Number(m.predictedSd) || 0.4;
     return {
+      index: i,
       questionId: q.id,
-      isCalibration: q.block === "calibration",
+      isCalibration: isCalib,
+      block: q.block,
       type: q.type || "",
       difficulty: q.difficulty || "medium",
       text: q.text,
@@ -128,17 +135,39 @@ export function analysisFromAttempt(doc, bank) {
         (!m.finalSelectedOption ? "skipped" : m.isCorrect ? "mastery" : "confusion"),
       prediction: {
         label: m.predictedClass || "Medium",
-        confidence: Math.min(5, Math.max(1, Number(m.predictedConfidence) || 3)),
+        confidence: predConf,
         certainty: probs.length ? Math.max(...probs) : 0.5,
+        sd,
+        probs,
       },
-      actual: q.block === "calibration" && m.confidenceRating ? m.confidenceRating : null,
+      actual,
+      absError: isCalib && actual ? Math.abs(predConf - actual) : null,
       timeSpent: m.timeSpent || 0,
       optionChanges: m.optionChanges || 0,
       markedForReview: Boolean(m.markedForReview),
       visits: m.visits || 0,
     };
   });
-  return { items, calibration: { reliability: doc.calibrationReliability || "moderate" } };
+
+  const calibrationResults = items.filter((i) => i.isCalibration);
+  const technicalResults = items.filter((i) => !i.isCalibration);
+  const ratings =
+    doc.calibrationRatings ||
+    calibrationResults.map((r) => r.actual).filter(Boolean);
+  const spread =
+    ratings.length > 0 ? Math.max(...ratings) - Math.min(...ratings) : 1;
+
+  return {
+    items,
+    calibrationResults,
+    technicalResults,
+    calibration: {
+      ratings,
+      looMae: Number(doc.calibrationLooMae) || 0,
+      reliability: doc.calibrationReliability || (spread === 0 ? "flat" : "moderate"),
+      spread,
+    },
+  };
 }
 
 /** The bits of a question worth keeping on the attempt for later. */

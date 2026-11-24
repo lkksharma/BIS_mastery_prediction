@@ -1423,6 +1423,51 @@ section > .guide__label:first-child {
   color: var(--warn);
 }
 
+.series-step--clickable {
+  padding: 0;
+  cursor: pointer;
+  transition: border-color 0.15s, background-color 0.15s, box-shadow 0.15s;
+}
+
+.series-step--clickable:hover {
+  border-color: var(--series-1);
+  background: var(--surface-2);
+}
+
+.series-step__btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 100%;
+  padding: 10px 12px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.series-step__btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.series-step__title {
+  display: block;
+}
+
+.series-step__action {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--series-1);
+  margin-top: 2px;
+}
+
 .series-copy {
   font-size: 14px;
   line-height: 1.55;
@@ -1435,7 +1480,8 @@ section > .guide__label:first-child {
 }
 
 @media (max-width: 480px) {
-  .series-step {
+  .series-step,
+  .series-step__btn {
     flex-direction: column;
     align-items: flex-start;
     gap: 6px;
