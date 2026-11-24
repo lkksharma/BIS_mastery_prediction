@@ -8,7 +8,7 @@ import { createTelemetry } from "./lib/telemetry";
 import { loadBank, saveAttempt, loadHistory, saveGeneratedQuiz } from "./lib/firestore";
 import { fetchGuidance, buildGuidanceRequest, GUIDANCE_ENABLED } from "./lib/guidance";
 import {
-  MAX_LEVEL,
+  lastLevels,
   newSeriesId,
   summarizeSeries,
   analysisFromAttempt,
@@ -277,7 +277,8 @@ export default function App() {
           level,
           previous: buildGuidanceRequest(previousAnalysis),
           focus,
-          history: points.map((p) => ({ level: p.level, score: p.score, total: p.total })),
+          // Recent scores only: the series is open-ended, the request is not.
+          history: lastLevels(points).map((p) => ({ level: p.level, score: p.score, total: p.total })),
           signal: ctl.signal,
         });
 
@@ -589,7 +590,8 @@ export default function App() {
           onRetryGuidance={() => requestGuidance(analysis)}
           quiz={quiz}
           seriesLevels={series?.seriesId === quiz?.seriesId ? series.levels : []}
-          onNextQuiz={quiz && quiz.level < MAX_LEVEL ? continueFromResults : null}
+          // Open-ended series: there is always a next quiz; "Back to home" is how the student stops.
+          onNextQuiz={quiz ? continueFromResults : null}
           onHome={goHome}
         />
       )}
@@ -598,7 +600,7 @@ export default function App() {
 }
 
 function TopBar({ config, stage, theme, setTheme, timeLeft, account, onSignOut, level }) {
-  const of = level ? `Quiz ${level} of ${MAX_LEVEL} · ` : "";
+  const of = level ? `Quiz ${level} · ` : "";
   const subtitle =
     stage === STAGES.CALIBRATION
       ? `${of}Section 1 — confidence collected`
@@ -666,7 +668,7 @@ function Generating({ generation, onRetry, onHome }) {
     <div className="shell shell--narrow" style={{ paddingTop: 48 }}>
       <div className="card">
         <p className="eyebrow">
-          Quiz {level} of {MAX_LEVEL}
+          Quiz {level}
         </p>
         {generation.status === "error" ? (
           <>

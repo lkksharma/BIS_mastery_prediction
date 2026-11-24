@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from "react";
 import ConfidenceChart from "./ConfidenceChart";
 import ProgressChart from "./ProgressChart";
-import { MAX_LEVEL } from "../lib/series";
 import { STATES, MODEL_METRICS } from "../model/predict";
 import { CONFIDENCE_WORDS } from "./QuestionView";
 
@@ -77,7 +76,7 @@ export default function Results({
 
       <div className="card">
         <p className="eyebrow">
-          Quiz {level} of {MAX_LEVEL} · {rollNumber}
+          Quiz {level} · {rollNumber}
           {attemptNumber > 1 ? ` · sitting ${attemptNumber}` : ""}
         </p>
         {level > 1 && quiz?.focusTopics?.length > 0 && (
@@ -144,8 +143,8 @@ export default function Results({
             <h2 className="card__title">Your progress across the series</h2>
             <p className="card__sub">
               {seriesLevels.length === 1
-                ? `Quiz 1 sets your starting point. Quizzes 2 and 3 are built from your weak spots, and each one adds a point here.`
-                : `Each follow-up quiz is built from the weak spots in the one before it, so a taller column means those topics are improving.`}{" "}
+                ? `Quiz 1 sets your starting point. Every follow-up is built from your weak spots, and each one adds a column here (the chart shows your last five).`
+                : `Each follow-up quiz is built from the weak spots in the one before it, so a taller column means those topics are improving. The chart shows your last five quizzes.`}{" "}
               Each column is your score, split by whether you hesitated (changed
               an answer, flagged it, or took longer than your average).
             </p>
@@ -162,7 +161,7 @@ export default function Results({
             <>
               <div className="card__head">
                 <h2 className="card__title">
-                  Next: quiz {level + 1} of {MAX_LEVEL}
+                  Next: quiz {level + 1}
                 </h2>
                 <p className="card__sub">
                   New questions aimed at the topics you found hardest here
@@ -171,27 +170,27 @@ export default function Results({
                     : guidance.status === "loading"
                       ? ". Waiting for the study guidance first makes it more precise."
                       : "."}{" "}
-                  You can also come back to it later from the home page.
+                  Keep going as long as you like, or stop here and pick it up
+                  later from the home page.
                 </p>
               </div>
               <div className="navrow" style={{ marginTop: 0 }}>
                 {onHome && (
                   <button type="button" className="btn" onClick={onHome}>
-                    Back to home
+                    I'm done for now
                   </button>
                 )}
                 <button type="button" className="btn btn--primary navrow__spacer" onClick={onNextQuiz}>
-                  Take quiz {level + 1} of {MAX_LEVEL}
+                  Take quiz {level + 1}
                 </button>
               </div>
             </>
           ) : (
             <>
               <div className="card__head">
-                <h2 className="card__title">Series complete</h2>
+                <h2 className="card__title">You're done</h2>
                 <p className="card__sub">
-                  You have taken all {MAX_LEVEL} quizzes in this series. Start a
-                  new series from the home page to go round again.
+                  Start a new series from the home page whenever you like.
                 </p>
               </div>
               <button type="button" className="btn" onClick={onHome}>

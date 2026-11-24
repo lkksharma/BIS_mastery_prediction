@@ -1,8 +1,11 @@
 import React, { useRef, useState } from "react";
-import { MAX_LEVEL } from "../lib/series";
+import { CHART_WINDOW } from "../lib/series";
 
 /**
- * Progress across a quiz series, quiz 1 -> 3: one stacked column per quiz.
+ * Progress across a quiz series: one stacked column per quiz, for the last
+ * CHART_WINDOW (5) quizzes. The series is open-ended, so the chart slides:
+ * once more than five quizzes are taken, the oldest drop off the left. The
+ * table view still lists every quiz in the series.
  *
  * The column's height is the score (% correct), split into the answers that
  * were correct without hesitating (mastery) and those correct after
@@ -15,10 +18,10 @@ import { MAX_LEVEL } from "../lib/series";
  * under 3:1 on the light surface, so the total labels and the table view are
  * always there.
  *
- * All three quiz slots are drawn from the start, so the student sees the whole
- * path and where they are on it.
+ * Until five quizzes are taken, the remaining slots are drawn empty, so the
+ * student sees where the next ones will land.
  */
-// Narrow on purpose: three columns read fine at phone width without scrolling.
+// Narrow on purpose: five columns still read fine at phone width.
 const W = 420;
 const H = 250;
 const PAD = { top: 26, right: 8, bottom: 46, left: 46 };
@@ -29,11 +32,9 @@ const SERIES = [
   { key: "masteryPct", label: "Correct without hesitating", color: "var(--series-1)" },
   { key: "shakyPct", label: "Correct after hesitating", color: "var(--series-3)" },
 ];
-const BAR = 56;
+const BAR = 50;
 const GAP = 2; // surface gap between stacked segments
 
-// Column centres: one equal slot per quiz.
-const x = (level) => PAD.left + ((level - 0.5) / MAX_LEVEL) * plotW;
 const y = (pct) => PAD.top + (1 - pct / 100) * plotH;
 const fmt = (v) => `${Math.round(v)}%`;
 
@@ -41,9 +42,21 @@ export default function ProgressChart({ levels, currentLevel }) {
   const [view, setView] = useState("chart");
   const [hover, setHover] = useState(null);
   const svgRef = useRef(null);
-  const points = [...levels]
+  const allPoints = [...levels]
     .sort((a, b) => a.level - b.level)
     .map((p) => ({ ...p, shakyPct: Math.max(0, p.scorePct - p.masteryPct) }));
+
+  // The visible window: the last CHART_WINDOW quiz numbers, ending at the
+  // latest one taken -- or quiz 1..5 while fewer than five exist.
+  const latest = allPoints.length ? allPoints[allPoints.length - 1].level : 1;
+  const first = Math.max(1, latest - CHART_WINDOW + 1);
+  const slots = Array.from({ length: CHART_WINDOW }, (_, i) => first + i);
+  const lastSlot = slots[slots.length - 1];
+  const points = allPoints.filter((p) => p.level >= first);
+  const hidden = allPoints.length - points.length;
+
+  // Column centres: one equal slot per visible quiz.
+  const x = (level) => PAD.left + ((level - first + 0.5) / CHART_WINDOW) * plotW;
 
   const handleMove = (evt) => {
     const svg = svgRef.current;
@@ -53,7 +66,7 @@ export default function ProgressChart({ levels, currentLevel }) {
     const px = (((touch ? touch.clientX : evt.clientX) - rect.left) / rect.width) * W;
     let best = null;
     for (const p of points) if (!best || Math.abs(x(p.level) - px) < Math.abs(x(best.level) - px)) best = p;
-    setHover(best && Math.abs(x(best.level) - px) < plotW / 4 ? best : null);
+    setHover(best && Math.abs(x(best.level) - px) < plotW / (CHART_WINDOW * 2) ? best : null);
   };
 
   return (
@@ -89,18 +102,18 @@ export default function ProgressChart({ levels, currentLevel }) {
               </tr>
             </thead>
             <tbody>
-              {Array.from({ length: MAX_LEVEL }, (_, i) => i + 1).map((level) => {
-                const p = points.find((q) => q.level === level);
+              {allPoints.map((p) => {
+                const level = p.level;
                 return (
                   <tr key={level}>
                     <td>
                       Quiz {level}
                       {level === currentLevel ? " (this one)" : ""}
                     </td>
-                    <td className="num">{p ? `${p.score}/${p.total} · ${fmt(p.scorePct)}` : "—"}</td>
-                    <td className="num">{p ? fmt(p.masteryPct) : "—"}</td>
-                    <td className="num">{p ? fmt(p.shakyPct) : "—"}</td>
-                    <td>{p ? (level === 1 ? "Main quiz" : p.focusTopics.join(", ") || "—") : "Not taken yet"}</td>
+                    <td className="num">{`${p.score}/${p.total} · ${fmt(p.scorePct)}`}</td>
+                    <td className="num">{fmt(p.masteryPct)}</td>
+                    <td className="num">{fmt(p.shakyPct)}</td>
+                    <td>{level === 1 ? "Main quiz" : p.focusTopics.join(", ") || "—"}</td>
                   </tr>
                 );
               })}
@@ -115,7 +128,7 @@ export default function ProgressChart({ levels, currentLevel }) {
               className="chart-svg chart-svg--fit"
               viewBox={`0 0 ${W} ${H}`}
               role="img"
-              aria-label={`Percent correct, split by hesitation, across ${points.length} of ${MAX_LEVEL} quizzes in this series`}
+              aria-label={`Percent correct, split by hesitation, for quizzes ${points[0]?.level ?? 1} to ${latest} of this series`}
               onMouseMove={handleMove}
               onMouseLeave={() => setHover(null)}
               onTouchStart={handleMove}
@@ -130,7 +143,7 @@ export default function ProgressChart({ levels, currentLevel }) {
                   </text>
                 </g>
               ))}
-              {Array.from({ length: MAX_LEVEL }, (_, i) => i + 1).map((level) => {
+              {slots.map((level) => {
                 const taken = points.some((p) => p.level === level);
                 return (
                   <g key={level}>
@@ -146,14 +159,14 @@ export default function ProgressChart({ levels, currentLevel }) {
                     </text>
                     {!taken && (
                       <text x={x(level)} y={H - PAD.bottom + 36} textAnchor="middle" fontSize="11.5" fill="var(--text-muted)">
-                        not taken yet
+                        {level === latest + 1 ? "up next" : "not yet"}
                       </text>
                     )}
                   </g>
                 );
               })}
 
-              {Array.from({ length: MAX_LEVEL }, (_, i) => i + 1).map((level) => {
+              {slots.map((level) => {
                 const p = points.find((q) => q.level === level);
                 const x0 = x(level) - BAR / 2;
                 if (!p) {
@@ -211,13 +224,13 @@ export default function ProgressChart({ levels, currentLevel }) {
               className="tooltip"
               style={
                 // Beside the column, never over it: right of it, except for
-                // the last column, which has no room on that side.
-                hover.level < MAX_LEVEL
+                // the right-hand columns, which have no room on that side.
+                hover.level < lastSlot - 1
                   ? { left: `${((x(hover.level) + BAR / 2 + 8) / W) * 100}%`, top: 8 }
                   : { left: `${((x(hover.level) - BAR / 2 - 8) / W) * 100}%`, top: 8, transform: "translateX(-100%)" }
               }
             >
-              <div className="tooltip__title">Quiz {hover.level} of {MAX_LEVEL}</div>
+              <div className="tooltip__title">Quiz {hover.level}</div>
               <div className="tooltip__row">
                 <span>Score</span>
                 <b>
@@ -239,6 +252,11 @@ export default function ProgressChart({ levels, currentLevel }) {
                 </div>
               )}
             </div>
+          )}
+          {hidden > 0 && (
+            <p className="muted" style={{ marginTop: 6, fontSize: 12.5, textAlign: "center" }}>
+              Showing your last {CHART_WINDOW} quizzes. Switch to Table to see all {allPoints.length}.
+            </p>
           )}
         </div>
       )}

@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
-import { MAX_LEVEL } from "../lib/series";
+
+// Steps shown on the home series card: the last two quizzes taken + the next.
+const STEP_WINDOW = 3;
 
 /** Institutional addresses are usually the roll number, e.g. 102103045@thapar.edu
  *  or first.102103045@college.ac.in. Pre-fill when we can see one, but leave it
@@ -186,7 +188,7 @@ export default function Landing({
             disabled={!canStart}
             style={{ marginTop: 8 }}
           >
-            {series ? `Start a new quiz 1 of ${MAX_LEVEL}` : "Start section 1"}
+            {series ? "Start a new series from quiz 1" : "Start section 1"}
           </button>
           {series && (
             <p className="field__hint" style={{ textAlign: "center", marginTop: 8 }}>
@@ -208,12 +210,18 @@ export default function Landing({
 function SeriesCard({ series, onResume, onContinue }) {
   const done = new Map(series.levels.map((l) => [l.level, l]));
   const pendingLevel = series.pending?.level;
+  // The series is open-ended: show a rolling strip ending at the next quiz.
+  const upcoming = pendingLevel || series.nextLevel;
+  const firstStep = Math.max(1, upcoming - STEP_WINDOW + 1);
+  const steps = Array.from({ length: STEP_WINDOW }, (_, i) => firstStep + i);
 
   return (
     <div className="card">
-      <p className="eyebrow">Your quiz series</p>
+      <p className="eyebrow">
+        Your quiz series · {series.levels.length} taken
+      </p>
       <ol className="series-steps">
-        {Array.from({ length: MAX_LEVEL }, (_, i) => i + 1).map((level) => {
+        {steps.map((level) => {
           const d = done.get(level);
           const state = d
             ? "done"
@@ -248,35 +256,30 @@ function SeriesCard({ series, onResume, onContinue }) {
         <>
           <p className="series-copy">
             <strong>
-              You started quiz {series.pending.level} of {MAX_LEVEL} but did not
+              You started quiz {series.pending.level} but did not
               finish it.
             </strong>{" "}
             It focuses on {listTopics(series.pending.focusTopics)}. Resuming
             gives you the same questions, from the first one again.
           </p>
           <button type="button" className="btn btn--primary btn--wide" onClick={onResume}>
-            Resume quiz {series.pending.level} of {MAX_LEVEL}
-          </button>
-        </>
-      ) : series.nextLevel ? (
-        <>
-          <p className="series-copy">
-            <strong>
-              Quiz {series.nextLevel} of {MAX_LEVEL} is built from your answers
-              in quiz {series.nextLevel - 1}.
-            </strong>{" "}
-            New questions aimed at the topics you found hardest, so you can see
-            whether they have improved.
-          </p>
-          <button type="button" className="btn btn--primary btn--wide" onClick={onContinue}>
-            Take quiz {series.nextLevel} of {MAX_LEVEL}
+            Resume quiz {series.pending.level}
           </button>
         </>
       ) : (
-        <p className="series-copy">
-          <strong>You have finished all {MAX_LEVEL} quizzes in this series.</strong>{" "}
-          Start a new series below to go round again.
-        </p>
+        <>
+          <p className="series-copy">
+            <strong>
+              Quiz {series.nextLevel} is built from your answers
+              in quiz {series.nextLevel - 1}.
+            </strong>{" "}
+            New questions aimed at the topics you found hardest, so you can see
+            whether they have improved. Keep going for as long as you like.
+          </p>
+          <button type="button" className="btn btn--primary btn--wide" onClick={onContinue}>
+            Take quiz {series.nextLevel}
+          </button>
+        </>
       )}
     </div>
   );

@@ -174,9 +174,15 @@ const FOLLOW_UP_CALIBRATION = {
   ],
 };
 
-/** The calibration block for quiz `level` of a series (1 = the main bank). */
+/**
+ * The calibration block for quiz `level` of a series (1 = the main bank).
+ * The series is open-ended but there are only two reviewed follow-up sets, so
+ * from quiz 4 on they alternate (even -> set 2, odd -> set 3): consecutive
+ * quizzes never share a calibration item.
+ */
 export function calibrationForLevel(level, baseCalibration = CALIBRATION_QUESTIONS) {
-  return level <= 1 ? baseCalibration : FOLLOW_UP_CALIBRATION[level] || FOLLOW_UP_CALIBRATION[3];
+  if (level <= 1) return baseCalibration;
+  return FOLLOW_UP_CALIBRATION[level] || FOLLOW_UP_CALIBRATION[level % 2 === 0 ? 2 : 3];
 }
 
 export const TECHNICAL_QUESTIONS = [

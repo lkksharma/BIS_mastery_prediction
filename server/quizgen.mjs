@@ -1,5 +1,5 @@
 /**
- * quizgen.mjs -- writes the follow-up quiz (quiz 2 or 3 of a series).
+ * quizgen.mjs -- writes the follow-up quiz (quiz 2, 3, 4, ... of a series).
  *
  * Two LangChain chains, both through the same model fallback list as the
  * guidance:
@@ -30,7 +30,10 @@ import {
   invokeWithFallback,
 } from "./guidance.mjs";
 
-export const MAX_LEVEL = 3;
+// The series is open-ended. MAX_LEVEL is only a sanity bound on the request,
+// and HISTORY_MAX the number of recent scores the browser sends.
+export const MAX_LEVEL = 1000;
+const HISTORY_MAX = 10;
 const GENERATE_COUNT = 15;
 const KEEP_COUNT = 12;
 const MIN_KEEP = 8;
@@ -63,7 +66,7 @@ export const NextQuizRequest = z.object({
         total: z.number().int().min(1),
       }),
     )
-    .max(MAX_LEVEL)
+    .max(HISTORY_MAX)
     .default([]),
 });
 
@@ -90,7 +93,7 @@ const GeneratedQuiz = z.object({
   questions: z.array(GeneratedQuestion),
 });
 
-const GENERATE_SYSTEM = `You write multiple-choice questions for a follow-up quiz. A student has just taken a quiz; you receive every question with their answer and two labels per question. Write quiz {level} of 3 in their series, aimed squarely at their weaknesses.
+const GENERATE_SYSTEM = `You write multiple-choice questions for a follow-up quiz. A student has just taken a quiz; you receive every question with their answer and two labels per question. Write quiz {level} in their series, aimed squarely at their weaknesses.
 
 # Reading the previous attempt
 
@@ -119,7 +122,7 @@ Write exactly {count} questions.
 - explanation: one or two sentences on why the answer is right and why the most tempting distractor is wrong.
 - Plain text, no markdown. Write arrows as ->.`;
 
-const GENERATE_HUMAN = `Previous attempt (quiz {previous_level} of 3):
+const GENERATE_HUMAN = `Previous attempt (quiz {previous_level}):
 {previous_json}
 
 Coach's focus list (may be empty):
@@ -133,9 +136,10 @@ const generatePrompt = ChatPromptTemplate.fromMessages([
   ["human", GENERATE_HUMAN],
 ]);
 
+// Quiz 2 eases in; from quiz 3 on the difficulty holds at the harder mix.
 const DIFFICULTY_RULE = {
   2: "mostly medium, about a quarter hard, no more than two easy.",
-  3: "mostly medium, about a third hard, none easy -- this is the last quiz in the series.",
+  3: "mostly medium, about a third hard, none easy.",
 };
 
 /* ------------------------------------------------------------------ *
@@ -240,7 +244,7 @@ export async function generateNextQuiz(chains, request, { signal, onFallback } =
       level: String(request.level),
       count: String(GENERATE_COUNT),
       focus_min: String(Math.round(GENERATE_COUNT * 0.65)),
-      difficulty_rule: DIFFICULTY_RULE[request.level] || DIFFICULTY_RULE[2],
+      difficulty_rule: DIFFICULTY_RULE[Math.min(request.level, 3)],
       previous_level: String(previousLevel),
       previous_json: JSON.stringify(request.previous, null, 2),
       focus_json: JSON.stringify(request.focus, null, 2),

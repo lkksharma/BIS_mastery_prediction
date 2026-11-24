@@ -1,12 +1,13 @@
 /**
- * Quiz series: quiz 1 (the main bank), then up to two generated follow-ups,
- * each aimed at the weaknesses the previous attempt showed.
+ * Quiz series: quiz 1 (the main bank), then as many generated follow-ups as
+ * the student wants -- each aimed at the weaknesses the previous attempt
+ * showed. The series is open-ended; it ends when the student stops.
  *
  * Every attempt records where it sits:
  *   seriesId         shared by the attempts of one series; a new quiz 1 starts
  *                    a new series (retaking quiz 1 stays allowed, as before)
- *   quizLevel        1, 2 or 3
- *   quizKind         "base" for quiz 1, "follow-up" for 2 and 3
+ *   quizLevel        1, 2, 3, ... (no upper bound)
+ *   quizKind         "base" for quiz 1, "follow-up" for every later one
  *   parentAttemptId  the attempt the follow-up was generated from
  *   generatedQuizId  the generated_quizzes document it was taken from
  *
@@ -15,7 +16,12 @@
  */
 import { postApi } from "./guidance";
 
-export const MAX_LEVEL = 3;
+/** How many of the most recent quizzes the progress chart shows. */
+export const CHART_WINDOW = 5;
+
+/** The most recent `n` summaries, oldest first. */
+export const lastLevels = (levels, n = CHART_WINDOW) =>
+  [...levels].sort((a, b) => a.level - b.level).slice(-n);
 
 export function newSeriesId() {
   if (globalThis.crypto?.randomUUID) return crypto.randomUUID();
@@ -79,8 +85,8 @@ export function summarizeSeries(history) {
     levels: levels.map(attemptSummary),
     lastAttempt: lastDone,
     pending,
-    nextLevel: highest < MAX_LEVEL ? highest + 1 : null,
-    complete: highest >= MAX_LEVEL,
+    // Open-ended: there is always a next quiz until the student stops.
+    nextLevel: highest + 1,
   };
 }
 
